@@ -4,87 +4,63 @@ import dash_html_components as html
 import plotly.express as px
 import pandas as pd
 from dash.dependencies import Input, Output
-from datetime import datetime, date
 ecom_sales = pd.read_csv('Data.txt',sep = ',')
 logo_link = 'https://assets.datacamp.com/production/repositories/5893/datasets/fdbe0accd2581a0c505dab4b29ebb66cf72a1803/e-comlogo.png'
+ecom_country = ecom_sales.groupby('Country')['OrderValue'].agg(['sum', 'count']).reset_index().rename(columns={'count':'Sales Volume', 'sum':'Total Sales ($)'})
 
-def make_break(num_breaks):
-    br_list = [html.Br()] * num_breaks
-    return br_list
-
-def add_logo():
-    corp_logo = html.Img(
-        src=logo_link, 
-        style={'margin':'20px 20px 5px 5px',
-              'border':'1px dashed lightblue',
-              'display':'inline-block'})
-    return corp_logo
-
-def style_c():
-    layout_style={
-        'display':'inline-block',
-        'margin':'0 auto',
-        'padding':'20px',
-    }
-    return layout_style
+# Add the country data to the scatter plot
+ecom_scatter = px.scatter(ecom_country, x='Total Sales ($)', y='Sales Volume', 
+                          color='Country', width=350, height=400, custom_data=['Country'])
+ecom_scatter.update_layout({'legend':dict(orientation='h', y=-0.5,x=1, yanchor='bottom', xanchor='right'), 'margin':dict(l=20, r=20, t=25, b=0)})
 
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
-  add_logo(),
-  *make_break(2),
-  html.H1('Sales Dashboard'),
-  *make_break(3),
+  html.Img(src=logo_link, 
+        style={'margin':'30px 0px 0px 0px' }),
+  html.H1('Sales breakdowns'),
   html.Div(
     children=[
     html.Div(
         children=[
-        html.H2('Controls', style=style_c()),
-        html.H3('Set minimum OrderValue'),
-        *make_break(2),
-        dcc.Input(
-          # Create the specified input
-          id='min_order_val', type='range', 
-          min=50, max=550, value=50,
-          # Ensure the callback is triggered only when the user stops moving the slider
-          debounce=False,
-        style={'width':'300px', 'height':'30px'})
+          html.H2('Sales by Country'),
+          dcc.Graph(id='scatter_fig', figure=ecom_scatter)
         ],
-        style={'width':'350px', 'height':'350px', 'vertical-align':'top', 'border':'1px solid black',
-        'display':'inline-block', 'margin':'0px 80px'}),
-    html.Div(children=[
-            dcc.Graph(id='sales_country'),
-            html.H2('Sales Quantity by Country', 
-            style={ 'border':'2px solid black', 'width':'400px', 'margin':'0 auto'})
-            ],
-             style={'width':'700px','display':'inline-block'}
-             ),
-    ])
-    ], 
-  style={'text-align':'center', 'display':'inline-block', 'width':'100%'}
-  )
+        style={'width':'350px', 'height':'500px', 'display':'inline-block', 
+               'vertical-align':'top', 'border':'1px solid black', 'padding':'20px'}),
+    html.Div(
+        children=[
+          html.H2('Key Stats'),
+          html.P(id='text_output', style={'width':'500px', 'text-align':'center'}),
+          ],
+          style={'width':'700px', 'height':'650px','display':'inline-block'}),
+    ]),], 
+  style={'text-align':'center', 'display':'inline-block', 'width':'100%'})
 
+# Trigger callback on hover
 @app.callback(
-    Output(component_id='sales_country', component_property='figure'), 
-    Input(component_id='min_order_val', component_property='value'))
+    Output('text_output', 'children'),
+    Input('scatter_fig', 'hoverData'))
 
-def update_plot(input_val):
-  
-    if not input_val:
-      input_val = 0
-  
-    sales = ecom_sales.copy(deep=True)
-
-    # Check for input then use to subset data
-    if input_val:
-        input_val = round(float(input_val), 2)
-        sales = sales[sales['OrderValue'] > input_val]
+def get_key_stats(hoverData):
     
-    fig = px.scatter(data_frame=sales, y='OrderValue', height=400,
-                     x='Quantity', color='Country',
-					 # Set the conditional title
-                     title=f'Orders of Min Value ${input_val}')
-    return fig
-      
+    if not hoverData:
+        return 'Hover over a country to see key stats'
+	
+    # Extract the custom data from the hoverData
+    country = hoverData['points'][0]['customdata'][0]
+    country_df = ecom_sales[ecom_sales['Country'] == country]
+    
+    top_major_cat = country_df.groupby('Major Category').agg('size').reset_index(name='Sales Volume').sort_values(by='Sales Volume', ascending=False).reset_index(drop=True).loc[0,'Major Category']
+    top_sales_month = country_df.groupby('Year-Month')['OrderValue'].agg('sum').reset_index(name='Total Sales ($)').sort_values(by='Total Sales ($)', ascending=False).reset_index(drop=True).loc[0,'Year-Month']
+	
+    # Use the aggregated variables
+    stats_list = [
+    f'Key stats for : {country}', html.Br(),
+    f'The most popular Major Category by sales volume was: {top_major_cat}', html.Br(),
+    f'The highest sales value month was: {top_sales_month}'
+    ]
+    return stats_list
+
 if __name__ == '__main__':
     app.run_server(debug=True)
